@@ -1,0 +1,346 @@
+openapi: 3.0.3
+info:
+  title: API KFOKAM48 — Présence & Relecture par les pairs
+  version: "1.0"
+  description: >
+    Les 5 opérations marquées [IMPOSÉE] reprennent exactement les chemins, verbes, codes HTTP
+    et formats du sujet (Annexe B) — non modifiables. Les opérations marquées [COMPLÉMENTAIRE]
+    sont proposées par l'analyse et justifiées individuellement ci-dessous.
+
+components:
+  schemas:
+    Erreur:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          example: CODE_EXPIRE
+        message:
+          type: string
+          example: "Le code de présence a expiré."
+
+paths:
+
+  # ------------------------------------------------------------------
+  # OPÉRATIONS IMPOSÉES PAR LE SUJET — chemins/verbes/codes non modifiables
+  # ------------------------------------------------------------------
+
+  /api/sessions:
+    post:
+      summary: "[IMPOSÉE] Ouvrir une session et obtenir un code de présence"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [titre, promotionId]
+              properties:
+                titre: { type: string }
+                promotionId: { type: string, format: uuid }
+      responses:
+        "201":
+          description: Session créée
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id: { type: string, format: uuid }
+                  code: { type: string }
+                  ouvertureAt: { type: string, format: date-time }
+                  expirationAt: { type: string, format: date-time }
+        "400":
+          description: champ manquant
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Erreur" }
+
+  /api/presences:
+    post:
+      summary: "[IMPOSÉE] Marquer sa présence avec un code"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code, etudiantId]
+              properties:
+                code: { type: string }
+                etudiantId: { type: string, format: uuid }
+      responses:
+        "201":
+          description: Présence enregistrée
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id: { type: string, format: uuid }
+                  sessionId: { type: string, format: uuid }
+                  etudiantId: { type: string, format: uuid }
+                  source: { type: string, enum: [ETUDIANT, FORMATEUR] }
+        "400":
+          description: code inconnu
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Erreur" }
+        "409":
+          description: déjà présent
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Erreur" }
+        "410":
+          description: code expiré
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Erreur" }
+
+  /api/exercices:
+    post:
+      summary: "[IMPOSÉE] Déposer le lien de son exercice"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [sessionId, etudiantId, lien]
+              properties:
+                sessionId: { type: string, format: uuid }
+                etudiantId: { type: string, format: uuid }
+                lien: { type: string, format: uri }
+      responses:
+        "201":
+          description: Exercice déposé
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id: { type: string, format: uuid }
+                  statut: { type: string, enum: [DEPOSE, EN_ATTENTE_RELECTURE, RELU] }
+        "400":
+          description: lien invalide
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Erreur" }
+        "409":
+          description: exercice déjà déposé
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Erreur" }
+
+  /api/relectures/{id}:
+    post:
+      summary: "[IMPOSÉE] Noter et commenter l'exercice assigné"
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [note, commentaire]
+              properties:
+                note: { type: integer, minimum: 0, maximum: 20 }
+                commentaire: { type: string }
+      responses:
+        "200":
+          description: Relecture enregistrée
+        "400":
+          description: note hors 0–20 ou non entière
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Erreur" }
+        "403":
+          description: relecture de son propre exercice
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Erreur" }
+        "409":
+          description: relecture déjà rendue
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Erreur" }
+
+  /api/tableau:
+    get:
+      summary: "[IMPOSÉE] Tableau de bord du formateur"
+      parameters:
+        - name: promotionId
+          in: query
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Tableau par étudiant
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    etudiantId: { type: string, format: uuid }
+                    nom: { type: string }
+                    presences: { type: integer }
+                    exercicesDeposes: { type: integer }
+                    moyenne: { type: number }
+                    relecturesEnAttente: { type: integer }
+        "404":
+          description: promotion inconnue
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Erreur" }
+
+  # ------------------------------------------------------------------
+  # OPÉRATIONS COMPLÉMENTAIRES — proposées et justifiées par l'analyse
+  # ------------------------------------------------------------------
+
+  /api/sessions/{id}/cloturer:
+    patch:
+      summary: "[COMPLÉMENTAIRE] Clôturer une session"
+      description: >
+        Nécessaire car RG9 (correction de note), RG11 (dépôt), RG12 (remplacement de lien) et la
+        contradiction Q10/Q15 (voir cahier des charges §7, C1 et Z1) dépendent toutes d'un événement
+        de clôture explicite qu'aucune des 5 opérations imposées ne couvre : aucune d'elles ne
+        modifie le statut d'une session. Sans cet endpoint, les règles métier citées sont
+        invérifiables.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200": { description: Session clôturée }
+        "404":
+          description: session inconnue
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Erreur" }
+        "409":
+          description: session déjà clôturée
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Erreur" }
+
+  /api/etudiants:
+    get:
+      summary: "[COMPLÉMENTAIRE] Lister les étudiants d'une promotion"
+      description: >
+        Nécessaire pour peupler la liste de sélection sans mot de passe (Q1). Aucune des 5
+        opérations imposées ne lit de liste d'étudiants ; `GET /api/tableau` retourne un
+        agrégat de statistiques, pas une liste utilisable pour un formulaire de connexion.
+      parameters:
+        - name: promotionId
+          in: query
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Liste des étudiants
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id: { type: string, format: uuid }
+                    nom: { type: string }
+
+  /api/etudiants/{id}/exercices:
+    get:
+      summary: "[COMPLÉMENTAIRE] Consulter ses propres exercices, notes et commentaires"
+      description: >
+        Nécessaire pour EF12 (Q8) : l'étudiant relu doit voir sa note et le commentaire, sans
+        connaître le relecteur. Aucune des 5 opérations imposées n'expose de vue individuelle —
+        `GET /api/tableau` est réservé à l'agrégat formateur et ne doit pas révéler l'identité du
+        relecteur ni être ouvert à un usage étudiant individuel.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Exercices de l'étudiant, avec note/commentaire si relus (jamais le relecteur)
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    exerciceId: { type: string, format: uuid }
+                    sessionId: { type: string, format: uuid }
+                    statut: { type: string, enum: [DEPOSE, EN_ATTENTE_RELECTURE, RELU] }
+                    note: { type: integer, nullable: true }
+                    commentaire: { type: string, nullable: true }
+
+  /api/etudiants/{id}/relectures-assignees:
+    get:
+      summary: "[COMPLÉMENTAIRE] Lister les relectures assignées à un étudiant (rôle relecteur)"
+      description: >
+        Nécessaire pour que l'écran « relecteur » (contrainte F2 du sujet) affiche ce qu'il reste
+        à relire (Q11). Aucune des 5 opérations imposées ne permet à un étudiant de découvrir
+        quels exercices lui ont été assignés — seul `POST /api/relectures/{id}` existe, et il
+        suppose déjà de connaître l'identifiant de la relecture.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Relectures assignées, rendues ou non
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    relectureId: { type: string, format: uuid }
+                    exerciceId: { type: string, format: uuid }
+                    lien: { type: string, format: uri }
+                    statut: { type: string, enum: [A_FAIRE, RENDUE] }
+
+  /api/sessions/{id}:
+    get:
+      summary: "[COMPLÉMENTAIRE] Détail d'une session (statut, expiration)"
+      description: >
+        Nécessaire pour que le frontend affiche l'état réel d'une session (ouverte / expirée /
+        clôturée) sans dupliquer la logique métier (contrainte F3 — aucune règle recalculée côté
+        client). Aucune des 5 opérations imposées ne relit une session après sa création.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        "200":
+          description: Détail de la session
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id: { type: string, format: uuid }
+                  titre: { type: string }
+                  code: { type: string }
+                  ouvertureAt: { type: string, format: date-time }
+                  expirationAt: { type: string, format: date-time }
+                  statut: { type: string, enum: [OUVERTE, CLOTUREE] }
+        "404":
+          description: session inconnue
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Erreur" }
