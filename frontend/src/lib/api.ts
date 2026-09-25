@@ -34,43 +34,6 @@ async function requete<T>(chemin: string, init?: RequestInit): Promise<T> {
 
 export type Promotion = { id: number; nom: string };
 export type Etudiant = { id: number; nom: string; promotionId: number };
-export type SessionOuverte = { id: number; code: string; ouvertureAt: string; expirationAt: string };
-export type Presence = { id: number; sessionId: number; etudiantId: number; source: "ETUDIANT" | "FORMATEUR" };
-export type StatutExercice = "DEPOSE" | "EN_ATTENTE_RELECTURE" | "RELU";
-export type ExerciceCree = { id: number; statut: StatutExercice };
-export type RelectureAssignee = {
-  id: number;
-  exerciceId: number;
-  sessionTitre: string;
-  lien: string;
-  rendue: boolean;
-  note: number | null;
-  commentaire: string | null;
-};
-export type LigneTableau = {
-  etudiantId: number;
-  nom: string;
-  presences: number;
-  exercicesDeposes: number;
-  moyenne: number | null;
-  moyenneProvisoire: boolean;
-  relecturesEnAttente: number;
-  exercicesEnAttente: number;
-};
-export type ExerciceEtudiant = {
-  id: number;
-  sessionId: number;
-  sessionTitre: string;
-  lien: string;
-  statut: StatutExercice;
-  note: number | null;
-  noteProvisoire: boolean;
-  relecturesRendues: number;
-  relecturesAttendues: number;
-  commentaires: string[];
-};
-export type PresenceDetail = Presence & { nom: string; createdAt: string };
-export type Session = SessionOuverte & { titre: string; promotionId: number; clotureAt: string | null };
 
 // --- Référentiel (EF7) ---
 
@@ -78,48 +41,3 @@ export const listerPromotions = () => requete<Promotion[]>("/api/promotions");
 
 export const listerEtudiants = (promotionId: number) =>
   requete<Etudiant[]>(`/api/promotions/${promotionId}/etudiants`);
-
-// --- Séances (EF1) ---
-
-export const ouvrirSession = (titre: string, promotionId: number) =>
-  requete<SessionOuverte>("/api/sessions", { method: "POST", body: JSON.stringify({ titre, promotionId }) });
-
-export const cloturerSession = (sessionId: number) =>
-  requete<Session>(`/api/sessions/${sessionId}/cloture`, { method: "POST" });
-
-export const listerSessions = (promotionId: number) => requete<Session[]>(`/api/sessions?promotionId=${promotionId}`);
-
-// --- Présences (EF2, EF9) ---
-
-export const listerPresences = (sessionId: number) =>
-  requete<PresenceDetail[]>(`/api/sessions/${sessionId}/presences`);
-
-export const ajouterPresenceManuelle = (sessionId: number, etudiantId: number) =>
-  requete<Presence>(`/api/sessions/${sessionId}/presences`, { method: "POST", body: JSON.stringify({ etudiantId }) });
-
-export const marquerPresence = (code: string, etudiantId: number) =>
-  requete<Presence>("/api/presences", { method: "POST", body: JSON.stringify({ code, etudiantId }) });
-
-// --- Exercices (EF3) ---
-
-export const mesExercices = (etudiantId: number) =>
-  requete<ExerciceEtudiant[]>(`/api/etudiants/${etudiantId}/exercices`);
-
-export const deposerExercice = (sessionId: number, etudiantId: number, lien: string) =>
-  requete<ExerciceCree>("/api/exercices", { method: "POST", body: JSON.stringify({ sessionId, etudiantId, lien }) });
-
-// --- Relectures (EF5, EF8) — identité déclarée dans X-Etudiant-Id (H2) ---
-
-export const mesRelectures = (etudiantId: number) =>
-  requete<RelectureAssignee[]>(`/api/etudiants/${etudiantId}/relectures`);
-
-export const rendreRelecture = (relectureId: number, etudiantId: number, note: number, commentaire: string) =>
-  requete<RelectureAssignee>(`/api/relectures/${relectureId}`, {
-    method: "POST",
-    headers: { "X-Etudiant-Id": String(etudiantId) },
-    body: JSON.stringify({ note, commentaire }),
-  });
-
-// --- Tableau (EF6) : la moyenne vient de l'API, jamais recalculée ici ---
-
-export const tableau = (promotionId: number) => requete<LigneTableau[]>(`/api/tableau?promotionId=${promotionId}`);
