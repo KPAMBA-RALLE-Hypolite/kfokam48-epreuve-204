@@ -2,17 +2,24 @@ package cm.kfokam48.presence.service;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.util.List;
 import java.util.Locale;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.dao.DataAccessException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import cm.kfokam48.presence.domain.Etudiant;
 import cm.kfokam48.presence.domain.Presence;
 import cm.kfokam48.presence.domain.SessionCours;
 import cm.kfokam48.presence.domain.SourcePresence;
+import cm.kfokam48.presence.dto.PresenceDetailDto;
 import cm.kfokam48.presence.dto.PresenceDto;
 import cm.kfokam48.presence.exception.CodeErreur;
 import cm.kfokam48.presence.exception.MetierException;
@@ -26,6 +33,8 @@ import cm.kfokam48.presence.repository.SessionRepository;
 @Service
 @Transactional
 public class PresenceService {
+
+    private static final Logger LOG = LoggerFactory.getLogger(PresenceService.class);
 
     private final SessionRepository sessions;
     private final EtudiantRepository etudiants;
@@ -58,6 +67,26 @@ public class PresenceService {
         return enregistrer(session, etudiant, SourcePresence.ETUDIANT, maintenant);
     }
 
+    /**
+     * EF9 : le formateur ajoute une présence à la main (Q14). Elle est marquée FORMATEUR (RG15) et n'est
+     * soumise ni à l'expiration du code ni à la clôture : c'est une correction a posteriori.
+     */
+    public PresenceDto ajouterManuellement(Long sessionId, Long etudiantId) {
+        SessionCours session = sessions.findById(sessionId)
+                .orElseThrow(() -> new MetierException(CodeErreur.SESSION_INCONNUE));
+        Etudiant etudiant = etudiants.findById(etudiantId)
+                .orElseThrow(() -> new MetierException(CodeErreur.ETUDIANT_INCONNU, HttpStatus.BAD_REQUEST));
+        return enregistrer(session, etudiant, SourcePresence.FORMATEUR, horloge.instant());
+    }
+
+    @Transactional(readOnly = true)
+    public List<PresenceDetailDto> presencesDe(Long sessionId) {
+        if (!sessions.existsById(sessionId)) {
+            throw new MetierException(CodeErreur.SESSION_INCONNUE);
+        }
+        return presences.presencesDeLaSeance(sessionId).stream().map(PresenceDetailDto::de).toList();
+    }
+
     private PresenceDto enregistrer(SessionCours session, Etudiant etudiant, SourcePresence source,
             Instant maintenant) {
         if (!etudiant.getPromotion().getId().equals(session.getPromotion().getId())) {
@@ -73,7 +102,32 @@ public class PresenceService {
             // RG2 garantie aussi par la contrainte unique, en cas de requêtes simultanées
             throw new MetierException(CodeErreur.DEJA_PRESENT);
         }
-        assignation.assignerEnAttente(session.getId()); // H1
+        assignerApresValidation(session.getId()); // H1
         return PresenceDto.de(presence);
+    }
+
+    /**
+     * Bug #21 : l'attribution d'un relecteur ne doit jamais annuler une présence.
+     * Elle est lancée une fois la présence validée, dans sa propre transaction ; si une présence
+     * simultanée a déjà attribué l'exercice, le conflit est ignoré.
+     */
+    private void assignerApresValidation(Long sessionId) {
+        Runnable attribution = () -> {
+            try {
+                assignation.assignerEnAttente(sessionId);
+            } catch (DataAccessException concurrence) {
+                LOG.info("Attribution déjà faite par une présence simultanée (séance {})", sessionId);
+            }
+        };
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    attribution.run();
+                }
+            });
+        } else {
+            attribution.run();
+        }
     }
 }
