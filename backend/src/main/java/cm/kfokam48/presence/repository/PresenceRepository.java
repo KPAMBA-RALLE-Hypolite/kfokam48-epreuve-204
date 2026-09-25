@@ -12,6 +12,14 @@ public interface PresenceRepository extends JpaRepository<Presence, Long> {
 
     boolean existsBySessionIdAndEtudiantId(Long sessionId, Long etudiantId);
 
+    @Query("select p from Presence p join fetch p.etudiant where p.session.id = :sessionId order by p.createdAt")
+    List<Presence> presencesDeLaSeance(@Param("sessionId") Long sessionId);
+
     @Query("select p.etudiant.id from Presence p where p.session.id = :sessionId")
     List<Long> idsPresents(@Param("sessionId") Long sessionId);
+
+    /** Tableau : [etudiantId, nombre de séances où il est présent] pour une promotion. */
+    @Query("select p.etudiant.id, count(p) from Presence p where p.session.promotion.id = :promotionId "
+            + "group by p.etudiant.id")
+    List<Object[]> compterParEtudiant(@Param("promotionId") Long promotionId);
 }
