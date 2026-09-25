@@ -1,16 +1,34 @@
-# D4 — États-transitions : cycle de vie d'un exercice (bonus)
+# D4 — États-transitions d'un exercice
+
+**Version 2 (étape 3)** : deux relecteurs par exercice, note provisoire (RG6, RG20, RG21). Le remplacement du lien (RG11) est sorti du périmètre.
+
+Valeurs de la colonne `exercice.statut` (voir D2). `n` = relectures assignées, `r` = relectures rendues, `requis` = `exercice.relecteurs_requis` (2).
 
 ```mermaid
 stateDiagram-v2
-    [*] --> DEPOSE : dépôt du lien (EF6)
+    [*] --> DEPOSE : POST /api/exercices (EF3)<br/>[séance non clôturée, RG10]
 
-    DEPOSE --> EN_ATTENTE_RELECTURE : relecteur assigné (EF8, RG6)
+    DEPOSE --> EN_ATTENTE_RELECTURE : 1 ou 2 relecteurs tirés (EF4, RG5-RG7)<br/>[au dépôt ou à la présence suivante, H1/H12]
 
-    DEPOSE --> DEPOSE : lien remplacé\n(EF7, RG12 — tant qu'aucune relecture n'a débuté)
+    state EN_ATTENTE_RELECTURE {
+        [*] --> SansNote
+        SansNote --> NoteProvisoire : 1re relecture rendue<br/>[r < requis] note retenue = cette note (RG21)
+        NoteProvisoire --> NoteProvisoire : second relecteur assigné (H12)
+        SansNote --> SansNote : second relecteur assigné (H12)
+    }
 
-    EN_ATTENTE_RELECTURE --> RELU : relecture soumise (EF9)
+    EN_ATTENTE_RELECTURE --> RELU : dernière relecture rendue<br/>[r = requis] note retenue = moyenne (RG20, RG21)
 
-    RELU --> RELU : note/commentaire corrigés\n(EF13, RG9 — tant que session non clôturée)
+    RELU --> [*]
 
-    RELU --> [*] : session clôturée (RG14, note définitive)
-    EN_ATTENTE_RELECTURE --> [*] : session clôturée,\nrelecture jamais rendue (RG10)
+    note right of DEPOSE
+        Aucun présent éligible :
+        l'exercice attend (tableau : « en attente », RG17)
+    end note
+    note right of RELU
+        Définitif (RG9, Q15) :
+        nouvel envoi → 409 RELECTURE_DEJA_RENDUE
+    end note
+```
+
+`SansNote` et `NoteProvisoire` ne sont pas stockés : ils se déduisent de `r` et sont exposés par l'API via `noteProvisoire` (EF12) et `moyenneProvisoire` (EF6).
