@@ -1,106 +1,81 @@
-# D2 — Modèle de données (diagramme de classes)
+# D2 — Modèle de données
 
-Formalisme : Mermaid `classDiagram`. Suffisamment précis pour être traduit directement en migrations
-(types, contraintes d'unicité en commentaire, cardinalités explicites).
+**Version 2 (étape 3)** : la migration `V3__deux_relecteurs.sql` permet deux relecteurs par exercice (RG6 modifiée) et ajoute `exercice.relecteurs_requis`.
+
+Ce diagramme correspond **exactement** aux migrations Flyway de `backend/src/main/resources/db/migration/` : mêmes noms de tables, de colonnes et de contraintes. Toute évolution du schéma passe par une nouvelle migration **et** une mise à jour de ce fichier.
 
 ```mermaid
-classDiagram
-    class Promotion {
-        +UUID id
-        +String nom
+erDiagram
+    PROMOTION ||--o{ ETUDIANT : "regroupe"
+    PROMOTION ||--o{ SESSION_COURS : "a"
+    SESSION_COURS ||--o{ PRESENCE : "enregistre"
+    ETUDIANT ||--o{ PRESENCE : "a"
+    SESSION_COURS ||--o{ EXERCICE : "reçoit"
+    ETUDIANT ||--o{ EXERCICE : "dépose"
+    EXERCICE ||--o{ RELECTURE : "est relu par (2 requis, RG6)"
+    ETUDIANT ||--o{ RELECTURE : "relit"
+    ETUDIANT ||--o| TENTATIVE_CODE : "compte ses erreurs"
+
+    PROMOTION {
+        bigint id PK
+        varchar nom UK "NOT NULL"
     }
-
-    class Etudiant {
-        +UUID id
-        +String nom
-        +UUID promotionId
+    ETUDIANT {
+        bigint id PK
+        varchar nom "NOT NULL"
+        bigint promotion_id FK "NOT NULL"
     }
-
-    class Session {
-        +UUID id
-        +String titre
-        +UUID promotionId
-        +String code
-        +DateTime ouvertureAt
-        +DateTime expirationAt
-        +StatutSession statut
+    SESSION_COURS {
+        bigint id PK
+        varchar titre "NOT NULL"
+        bigint promotion_id FK "NOT NULL"
+        varchar code UK "6 caractères, NOT NULL"
+        timestamptz ouverture_at "NOT NULL"
+        timestamptz expiration_at "ouverture_at + 15 min (RG1)"
+        timestamptz cloture_at "NULL tant que non clôturée"
     }
-
-    class StatutSession {
-        <<enumeration>>
-        OUVERTE
-        CLOTUREE
+    PRESENCE {
+        bigint id PK
+        bigint session_id FK "NOT NULL"
+        bigint etudiant_id FK "NOT NULL"
+        varchar source "ETUDIANT | FORMATEUR (RG15)"
+        timestamptz created_at "NOT NULL"
     }
-
-    class Presence {
-        +UUID id
-        +UUID sessionId
-        +UUID etudiantId
-        +SourcePresence source
-        +DateTime marqueeAt
+    EXERCICE {
+        bigint id PK
+        bigint session_id FK "NOT NULL"
+        bigint etudiant_id FK "NOT NULL"
+        varchar lien "URL http(s) (RG13)"
+        varchar statut "DEPOSE | EN_ATTENTE_RELECTURE | RELU"
+        int relecteurs_requis "2 (1 pour les exercices antérieurs à V3, H11)"
+        timestamptz depose_at "NOT NULL"
     }
-
-    class SourcePresence {
-        <<enumeration>>
-        ETUDIANT
-        FORMATEUR
+    RELECTURE {
+        bigint id PK
+        bigint exercice_id FK "UK (exercice_id, relecteur_id)"
+        bigint relecteur_id FK "≠ auteur (RG5)"
+        int note "NULL tant que non rendue, 0..20 (RG8)"
+        varchar commentaire "NULL tant que non rendue"
+        timestamptz assignee_at "NOT NULL"
+        timestamptz rendue_at "NULL tant que non rendue (RG9)"
     }
-
-    class Exercice {
-        +UUID id
-        +UUID sessionId
-        +UUID etudiantId
-        +String lien
-        +StatutExercice statut
-        +DateTime deposeAt
+    TENTATIVE_CODE {
+        bigint etudiant_id PK,FK
+        int echecs "codes inconnus consécutifs"
+        timestamptz bloque_jusqua "NULL si non bloqué (RG4)"
     }
-
-    class StatutExercice {
-        <<enumeration>>
-        DEPOSE
-        EN_ATTENTE_RELECTURE
-        RELU
-    }
-
-    class Relecture {
-        +UUID id
-        +UUID exerciceId
-        +UUID relecteurId
-        +Integer note
-        +String commentaire
-        +DateTime soumiseAt
-        +DateTime modifieeAt
-    }
-
-    class TentativeCode {
-        +UUID id
-        +UUID sessionId
-        +UUID etudiantId
-        +Integer echecs
-        +DateTime bloqueJusqua
-    }
-
-    Promotion "1" --> "*" Etudiant : regroupe
-    Promotion "1" --> "*" Session : concerne
-    Session "1" --> "*" Presence : enregistre
-    Session "1" --> "*" Exercice : recoit
-    Etudiant "1" --> "*" Presence : marque
-    Etudiant "1" --> "*" Exercice : depose
-    Etudiant "1" --> "*" Relecture : relit (rôle relecteur)
-    Exercice "1" --> "0..1" Relecture : est relu par
-    Session "1" --> "*" TentativeCode : compte les echecs de
-
-    Session --> StatutSession
-    Presence --> SourcePresence
-    Exercice --> StatutExercice
 ```
 
-**Contraintes portées par ce modèle (à traduire en migrations, étape 2)**
-- `Presence` : unicité (`sessionId`, `etudiantId`) → applique RG contre la double présence (EF4).
-- `Exercice` : unicité (`sessionId`, `etudiantId`) → un seul exercice actif par étudiant et par session.
-- `Relecture` : unicité (`exerciceId`) → un seul relecteur par exercice (RG5) ; `relecteurId` ≠
-  `etudiant_id` de l'exercice associé (RG4, à vérifier en base et en service).
-- `Relecture.note` : entier, contrainte `CHECK (note BETWEEN 0 AND 20)` (RG8).
-- `Session.statut` conditionne, au niveau service, l'écriture sur `Presence`, `Exercice` et `Relecture`
-  (RG2, RG9, RG11, RG12, RG14).
-- `TentativeCode` porte le compteur d'échecs et la fenêtre de blocage de 2 minutes (RG3, EF5).
+## Contraintes portées par la base
+
+| Contrainte | Règle |
+|---|---|
+| `UNIQUE (session_id, etudiant_id)` sur `presence` | RG2 — une seule présence par séance |
+| `UNIQUE (session_id, etudiant_id)` sur `exercice` | RG12 — un seul dépôt par séance |
+| ~~`UNIQUE (exercice_id)`~~ remplacée en V3 par `UNIQUE (exercice_id, relecteur_id)` sur `relecture` | RG6 (v2) — deux relecteurs **distincts** |
+| `CHECK (relecteurs_requis BETWEEN 1 AND 2)` sur `exercice` | RG6, H11 |
+| `CHECK (note BETWEEN 0 AND 20)` sur `relecture` | RG8 |
+| `CHECK (source IN ('ETUDIANT','FORMATEUR'))` | RG15 |
+| `CHECK (statut IN ('DEPOSE','EN_ATTENTE_RELECTURE','RELU'))` | D4 |
+
+La règle « relecteur ≠ auteur » (RG5) et la limite « au plus `relecteurs_requis` relectures » sont vérifiées dans le service, parce qu'elles portent sur deux tables. L'exercice est verrouillé (`SELECT … FOR UPDATE`) pendant l'attribution (H14).
