@@ -1,55 +1,55 @@
 # D1 — Cas d'utilisation
 
-Formalisme : Mermaid `flowchart`
+Mermaid n'a pas de type « use case » natif : les acteurs sont représentés par des nœuds ronds, les cas d'utilisation par des nœuds arrondis dans le cadre du système. Les références EFx renvoient au cahier des charges.
 
 ```mermaid
 flowchart LR
-    Formateur(["👤 Formateur"])
-    Etudiant(["👤 Étudiant"])
-    Relecteur(["👤 Étudiant — rôle relecteur"])
-    Systeme(["⚙️ Système"])
+    F((Formateur))
+    E((Étudiant))
+    R((Relecteur))
+    SYS((Système))
 
-    UC1(["Ouvrir une session
-    et obtenir un code"])
-    UC2(["Marquer sa présence
-    avec un code"])
-    UC3(["Déposer / remplacer
-    le lien d'un exercice"])
-    UC4(["Noter et commenter
-    un exercice assigné"])
-    UC5(["Consulter le tableau
-    présence + moyennes"])
-    UC6(["Ajouter une présence
-    manuellement"])
-    UC7(["Clôturer la session"])
-    UC8(["Consulter sa note
-    et le commentaire reçu"])
-    UC9(["Assigner un relecteur
-    au hasard (RG6)"])
+    subgraph APP["Application KFOKAM48 — Présence & Relecture"]
+        UC1([Ouvrir une séance et obtenir un code — EF1])
+        UC9([Ajouter une présence à la main — EF9])
+        UC10([Clôturer une séance — EF10])
+        UC6([Consulter le tableau de la promotion — EF6])
 
-    Formateur --> UC1
-    Formateur --> UC5
-    Formateur --> UC6
-    Formateur --> UC7
+        UC7([Choisir son nom dans la liste — EF7])
+        UC2([Marquer sa présence avec le code — EF2])
+        UC3([Déposer le lien de son exercice — EF3])
+        UC12([Consulter la note reçue, provisoire ou définitive — EF12])
 
-    Etudiant --> UC2
-    Etudiant --> UC3
-    Etudiant --> UC8
+        UC8([Voir les relectures à faire — EF8])
+        UC5([Rendre une note et un commentaire — EF5])
 
-    Relecteur --> UC4
+        UC4([Assigner deux relecteurs au hasard — EF4])
+        UC15([Calculer la note retenue — RG21])
+    end
 
-    Systeme --> UC9
-    UC3 -.déclenche.-> UC9
-    UC9 -.assigne à.-> Relecteur
+    F --- UC1
+    F --- UC9
+    F --- UC10
+    F --- UC6
 
-    UC2 -.contraint par RG1 RG2 RG3.-> UC1
-    UC4 -.contraint par RG4 RG5 RG7 RG8 RG9.-> UC9
+    E --- UC7
+    E --- UC2
+    E --- UC3
+    E --- UC12
+
+    R --- UC8
+    R --- UC5
+
+    SYS --- UC4
+    SYS --- UC15
+
+    UC2 -. "«include»" .-> UC7
+    UC3 -. "«include»" .-> UC7
+    UC3 -. "«include»" .-> UC4
+    UC5 -. "«include»" .-> UC8
+    UC12 -. "«include»" .-> UC15
 ```
 
-**Notes de lecture**
-- Le rôle « Relecteur » n'est pas un compte distinct : c'est un étudiant, désigné automatiquement par
-  le système (UC9) parmi les étudiants présents à la session (RG6).
-- UC9 est un cas d'usage système, sans interaction humaine directe : il est déclenché par UC3 (dépôt
-  d'exercice), voir hypothèse Z5 du cahier des charges.
-- UC7 (clôturer la session) est l'action introduite pour combler le trou fonctionnel Z1 — elle
-  conditionne RG9, RG11, RG12, RG14.
+**Version 2 (étape 3)** : deux relecteurs par exercice et note provisoire (EF4, EF12, RG21). Les cas « remplacer son lien » (EF11) et « blocage après 5 erreurs » (EF13) sont sortis du périmètre.
+
+Note : le **Relecteur** n'est pas un compte à part. C'est un Étudiant présent à la séance que le système a désigné (RG7).
